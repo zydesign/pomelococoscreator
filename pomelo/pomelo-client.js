@@ -62,12 +62,12 @@ require("protocol");
   var decode = null;
   var encode = null;
 
-  var reconnect = false;
-  var reconncetTimer = null;
-  var reconnectUrl = null;
-  var reconnectAttempts = 0;
-  var reconnectionDelay = 5000;
-  var DEFAULT_MAX_RECONNECT_ATTEMPTS = 10;
+  var reconnect = false;                     //重连开关
+  var reconncetTimer = null;                 //重连时间
+  var reconnectUrl = null;                   //重连地址
+  var reconnectAttempts = 0;                 //初始重连次数0
+  var reconnectionDelay = 5000;              //重连事件间隔：5秒
+  var DEFAULT_MAX_RECONNECT_ATTEMPTS = 10;   //重连最大次数：默认10次
 
   var useCrypto;
 
@@ -96,6 +96,7 @@ require("protocol");
 
   var initCallback = null;
 
+  //init连接网络。params：{host：host, port：port, reconnect:true, }
   pomelo.init = function(params, cb) {
     initCallback = cb;
     var host = params.host;
@@ -165,9 +166,12 @@ require("protocol");
     console.log('connect to ' + url);
 
     var params = params || {};
+    //最大尝试重连次数（1.init的时候maxReconnectAttempts：N。）默认10次
     var maxReconnectAttempts = params.maxReconnectAttempts || DEFAULT_MAX_RECONNECT_ATTEMPTS;
+    //重连的网址
     reconnectUrl = url;
     //Add protobuf version
+    //数据传输版本
     if(window.localStorage && window.localStorage.getItem('protos') && protoVersion === 0) {
       var protos = JSON.parse(window.localStorage.getItem('protos'));
 
@@ -186,7 +190,9 @@ require("protocol");
     //Set protoversion
     handshakeBuffer.sys.protoVersion = protoVersion;
 
+    //连接成功函数
     var onopen = function(event) {
+      //如果该连接成功为重连成功，发射'重连'事件
       if(!!reconnect) {
         pomelo.emit('reconnect');
       }
@@ -194,6 +200,7 @@ require("protocol");
       var obj = Package.encode(Package.TYPE_HANDSHAKE, Protocol.strencode(JSON.stringify(handshakeBuffer)));
       send(obj);
     };
+    //收到消息时，触发的函数
     var onmessage = function(event) {
       processPackage(Package.decode(event.data), cb);
       // new package arrived, update the heartbeat timeout
@@ -201,21 +208,26 @@ require("protocol");
         nextHeartbeatTimeout = Date.now() + heartbeatTimeout;
       }
     };
+    //连接失败、请求失败，接收失败，发送数据失败时，触发该函数
     var onerror = function(event) {
+      //重连失败，发射'连接错误'事件
       pomelo.emit('io-error', event);
       console.error('socket error: ', event);
     };
+    //网络中断，触发该函数
     var onclose = function(event) {
       pomelo.emit('close',event);
+      //发射'断开连接'事件
       pomelo.emit('disconnect', event);
       console.error('socket close: ', event);
+      //如果init提供参数：renconnect：true； 而且重连次数小于最大值,执行connect
       if(!!params.reconnect && reconnectAttempts < maxReconnectAttempts) {
-        reconnect = true;
-        reconnectAttempts++;
-        reconncetTimer = setTimeout(function() {
+        reconnect = true;                          //重连开启
+        reconnectAttempts++;                       //重连次数+1
+        reconncetTimer = setTimeout(function() {   //5秒后，执行connect(params, reconnectUrl, cb)
           connect(params, reconnectUrl, cb);
         }, reconnectionDelay);
-        reconnectionDelay *= 2;
+        reconnectionDelay *= 2;                    //再等待10秒
       }
     };
     socket = new WebSocket(url);
@@ -244,6 +256,7 @@ require("protocol");
     }
   };
 
+  //重连成功后，重设重连参数
   var reset = function() {
     reconnect = false;
     reconnectionDelay = 1000 * 5;
